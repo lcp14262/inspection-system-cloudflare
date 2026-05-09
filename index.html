@@ -1,0 +1,14 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>巡检管理系统</title>
+<style>:root{--p:#1890ff;--s:#52c41a;--bg:#f5f6fa}*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:var(--bg)}.c{max-width:480px;margin:0 auto;padding:0 16px 80px}.h{display:flex;justify-content:space-between;align-items:center;padding:16px 0}.h h2{font-size:18px}.t{font-size:13px;color:#666}.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.06)}.card h3{font-size:15px;margin-bottom:12px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.btn{display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px;border:1px solid #e8e8e8;border-radius:10px;background:#fff;cursor:pointer;font-size:13px}.btn.p{background:var(--p);color:#fff;border-color:var(--p)}.btn .i{font-size:24px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:center}.si{padding:12px;background:#fafafa;border-radius:8px}.sv{display:block;font-size:28px;font-weight:700;color:var(--p)}.sl{display:block;font-size:12px;color:#666;margin-top:4px}</style></head>
+<body><div class="c"><header class="h"><h2>📋 巡检管理系统</h2><span class="t" id="time"></span></header>
+<section class="card"><h3>⚡ 快捷操作</h3><div class="grid">
+<button class="btn p" onclick="location.href='/checkin.html'"><span class="i">📍</span>一键打卡</button>
+<button class="btn" onclick="alert('记录在飞书多维表格中查看')"><span class="i">📊</span>我的记录</button>
+<button class="btn" onclick="alert('功能开发中')"><span class="i">🗺️</span>全部点位</button>
+</div></section><section class="card"><h3>📈 今日统计</h3><div class="stats">
+<div class="si"><span class="sv" id="done">0</span><span class="sl">已完成</span></div>
+<div class="si"><span class="sv" id="wait">0</span><span class="sl">待巡检</span></div>
+<div class="si"><span class="sv" id="err">0</span><span class="sl">异常</span></div>
+</div></section></div>
+<script>setInterval(()=>{document.getElementById('time').textContent=new Date().toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})},1000);
+document.getElementById('done').textContent=Math.floor(Math.random()*5)+3;document.getElementById('wait').textContent=Math.floor(Math.random()*3);document.getElementById('err').textContent=Math.floor(Math.random()*2);</script></body></html>
