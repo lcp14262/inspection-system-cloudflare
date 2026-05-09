@@ -1,9 +1,9 @@
 // functions/api/points.js
 export async function onRequest(context) {
     const CHECKIN_POINTS = {
-        'A001': { name: '1号厂房东侧', area: '生产车间', lat: 31.2304, lng: 120.6773, radius: 50 },
-        'A002': { name: '2号仓库南门', area: '仓储区', lat: 31.2318, lng: 120.6790, radius: 50 },
-        'B001': { name: '化学品存储区入口', area: '危化品区', lat: 31.2295, lng: 120.6755, radius: 30 },
+       'A001': { name: '1号厂房东侧', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
+         'A002': { name: '1号大门', area: '合肥工厂', lat: 30.5215, lng: 117.0478, radius: 200 },
+         'B001': { name: '1号大门', area: '安庆工厂', lat: 31.7608, lng: 117.2027, radius: 200 },
     };
 
     const points = Object.entries(CHECKIN_POINTS).map(([id, p]) => ({
