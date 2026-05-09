@@ -28,9 +28,10 @@ export async function onRequest(context) {
     const { point_id, lat, lng, result, description, photo } = body;
 
     const CHECKIN_POINTS = {
-        'A001': { name: '1号厂房东侧', lat: 31.2304, lng: 120.6773, radius: 50 },
-        'A002': { name: '2号仓库南门', lat: 31.2318, lng: 120.6790, radius: 50 },
-        'B001': { name: '化学品存储区入口', lat: 31.2295, lng: 120.6755, radius: 30 },
+         'A001': { name: '1号大门', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
+         'A002': { name: '1号大门', area: '合肥工厂', lat: 30.5215, lng: 117.0478, radius: 200 },
+         'B001': { name: '1号大门', area: '安庆工厂', lat: 31.7608, lng: 117.2027, radius: 200 },
+
     };
     const point = CHECKIN_POINTS[point_id];
     if (!point) {
