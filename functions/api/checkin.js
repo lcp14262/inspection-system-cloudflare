@@ -72,26 +72,36 @@ export async function onRequest(context) {
         let fileToken = null;
         if (photo) {
             const base64Data = photo.replace(/^data:image\/\w+;base64,/, "");
-            // Cloudflare 环境处理 Buffer 需要一点技巧，这里使用标准方式
+            // Cloudflare 环境处理 Buffer
             const byteCharacters = atob(base64Data);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
                 byteNumbers[i] = byteCharacters.charCodeAt(i);
             }
             const byteArray = new Uint8Array(byteNumbers);
-            const file = new File([byteArray], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
             
+            // 使用云文档上传接口 (附件字段需要这个)
             const formData = new FormData();
             formData.append('parent_type', 'bitable_app');
             formData.append('parent_node', env.FEISHU_BITABLE_TOKEN);
-            formData.append('file_name', `photo_${Date.now()}.jpg`);
-            formData.append('file', file);
+            formData.append('file', new Blob([byteArray], { type: 'image/jpeg' }), `photo_${Date.now()}.jpg`);
 
-            const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
-                method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData
-            });
+            const uploadRes = await fetch(
+                'https://open.feishu.cn/open-apis/drive/v1/files/upload_all',
+                {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData,
+                }
+            );
             const uploadData = await uploadRes.json();
-            if (uploadData.code === 0) fileToken = uploadData.data.file_token;
+            console.log('附件上传结果:', uploadData);
+            if (uploadData.code === 0) {
+                fileToken = uploadData.data.file_token;
+                console.log('附件上传成功，file_token:', fileToken);
+            } else {
+                console.error('附件上传失败:', uploadData);
+            }
         }
 
         // 7. 写入多维表格
