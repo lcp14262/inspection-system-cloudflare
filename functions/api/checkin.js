@@ -74,6 +74,15 @@ export async function onRequest(context) {
         const tokenData = await tokenRes.json();
         if (!tokenData.tenant_access_token) throw new Error('获取 Token 失败');
         const token = tokenData.tenant_access_token;
+		
+		//5.1 获取「我的空间」根目录 token
+		const rootRes = await fetch(
+			'https://open.feishu.cn/open-apis/drive/v1/files/root?type=my_space',
+			{ headers: { Authorization: `Bearer ${token}` } }
+		);
+		const rootData = await rootRes.json();
+		if (rootData.code !== 0) throw new Error('获取根目录失败: ' + rootData.msg);
+		const rootFolderToken = rootData.data.token;   // 用作 parent_node
 
         // 6. 上传照片到云文档（简化版：不指定文件夹，上传到根目录）
         let fileToken = null;
@@ -92,6 +101,8 @@ export async function onRequest(context) {
             const formData = new FormData();
             formData.append('file', new Blob([uint8Array], { type: 'image/jpeg' }), fileName);
             formData.append('file_name', fileName);
+			formData.append('parent_type', 'my_space');        // ← 补上
+			formData.append('parent_node', rootFolderToken);   // ← 补上
 
             const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
                 method: 'POST',
