@@ -27,18 +27,10 @@ export async function onRequest(context) {
 
     const { point_id, lat, lng, result, description, photo } = body;
     
-    // 🔍 调试日志：检查是否收到照片数据
-    console.log('收到请求数据:', { 
-        point_id, 
-        has_photo: !!photo, 
-        photo_length: photo ? photo.length : 0,
-        photo_prefix: photo ? photo.substring(0, 50) : null
-    });
-
     const CHECKIN_POINTS = {
-          'A001': { name: '1号大门', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
-         'A002': { name: '1号大门', area: '合肥工厂', lat: 30.5215, lng: 117.0478, radius: 200 },
-         'B001': { name: '1号大门', area: '安庆工厂', lat: 31.7608, lng: 117.2027, radius: 200 },
+        'A001': { name: '1 号厂房东侧', lat: 31.2304, lng: 120.6773, radius: 50 },
+        'A002': { name: '2 号仓库南门', lat: 31.2318, lng: 120.6790, radius: 50 },
+        'B001': { name: '化学品存储区入口', lat: 31.2295, lng: 120.6755, radius: 30 },
     };
     const point = CHECKIN_POINTS[point_id];
     if (!point) {
@@ -68,57 +60,50 @@ export async function onRequest(context) {
     try {
         // 5. 获取飞书 Token
         const env = context.env;
-        console.log('环境变量检查:', {
-            has_app_id: !!env.FEISHU_APP_ID,
-            has_app_secret: !!env.FEISHU_APP_SECRET,
-            has_bitable_token: !!env.FEISHU_BITABLE_TOKEN,
-            has_table_id: !!env.FEISHU_TABLE_ID
-        });
-        
         const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ app_id: env.FEISHU_APP_ID, app_secret: env.FEISHU_APP_SECRET }),
         });
         const tokenData = await tokenRes.json();
-        console.log('Token 获取结果:', { code: tokenData.code, has_token: !!tokenData.tenant_access_token });
+        if (!tokenData.tenant_access_token) {
+            throw new Error('获取 Token 失败：' + JSON.stringify(tokenData));
+        }
         const token = tokenData.tenant_access_token;
 
         // 6. 上传照片到云文档
         let fileToken = null;
+        let uploadError = null;
+        
         if (photo) {
-            console.log('开始上传照片...');
-            const base64Data = photo.replace(/^data:image\/\w+;base64,/, "");
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            
-            const formData = new FormData();
-            formData.append('parent_type', 'bitable_app');
-            formData.append('parent_node', env.FEISHU_BITABLE_TOKEN);
-            formData.append('file', new Blob([byteArray], { type: 'image/jpeg' }), `photo_${Date.now()}.jpg`);
+            try {
+                const base64Data = photo.replace(/^data:image\/\w+;base64,/, "");
+                const byteCharacters = atob(base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                
+                const formData = new FormData();
+                formData.append('parent_type', 'bitable_app');
+                formData.append('parent_node', env.FEISHU_BITABLE_TOKEN);
+                formData.append('file', new Blob([byteArray], { type: 'image/jpeg' }), `photo_${Date.now()}.jpg`);
 
-            const uploadUrl = 'https://open.feishu.cn/open-apis/drive/v1/files/upload_all';
-            console.log('上传请求:', { url: uploadUrl, has_token: !!token });
-            
-            const uploadRes = await fetch(uploadUrl, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData,
-            });
-            const uploadData = await uploadRes.json();
-            console.log('附件上传结果:', JSON.stringify(uploadData));
-            
-            if (uploadData.code === 0) {
-                fileToken = uploadData.data.file_token;
-                console.log('✅ 附件上传成功，file_token:', fileToken);
-            } else {
-                console.error('❌ 附件上传失败:', uploadData);
+                const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData,
+                });
+                const uploadData = await uploadRes.json();
+                
+                if (uploadData.code === 0) {
+                    fileToken = uploadData.data.file_token;
+                } else {
+                    uploadError = '上传失败：' + JSON.stringify(uploadData);
+                }
+            } catch (uploadErr) {
+                uploadError = '上传异常：' + uploadErr.message;
             }
-        } else {
-            console.log('⚠️ 没有照片数据，跳过上传');
         }
 
         // 7. 写入多维表格
@@ -133,40 +118,47 @@ export async function onRequest(context) {
             '处理状态': result === '异常' ? '待处理' : '已解决',
         };
         
-        // 🔍 调试：显示准备写入的字段
+        // 如果有 file_token，写入照片字段
         if (fileToken) {
             fields['现场照片'] = [{ "file_token": fileToken }];
-            console.log('准备写入的字段（含照片）:', JSON.stringify(fields));
-        } else {
-            console.log('准备写入的字段（无照片）:', JSON.stringify(fields));
         }
 
         const recordUrl = `https://open.feishu.cn/open-apis/bitable/v1/apps/${env.FEISHU_BITABLE_TOKEN}/tables/${env.FEISHU_TABLE_ID}/records`;
-        console.log('写入记录请求:', { url: recordUrl, has_token: !!token });
-        
         const recordRes = await fetch(recordUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ fields }),
         });
         const recordData = await recordRes.json();
-        console.log('写入记录结果:', JSON.stringify(recordData));
         
         if (recordData.code !== 0) {
             throw new Error(recordData.msg || '写入失败');
         }
 
+        // 返回详细调试信息
         return new Response(JSON.stringify({ 
             success: true, 
-            message: '打卡成功，数据已存入飞书表格', 
-            distance: Math.round(distance*10)/10,
-            has_photo: !!fileToken
+            message: '打卡成功',
+            debug: {
+                has_photo: !!photo,
+                photo_upload: fileToken ? '成功' : (uploadError || '未上传'),
+                file_token: fileToken,
+                upload_error: uploadError,
+                record_write: '成功',
+                fields_written: Object.keys(fields)
+            }
         }), {
             status: 200, headers: { 'Access-Control-Allow-Origin': '*' }
         });
     } catch (err) {
-        console.error('❌ 异常:', err.message);
-        return new Response(JSON.stringify({ success: false, message: '写入失败：' + err.message }), {
+        return new Response(JSON.stringify({ 
+            success: false, 
+            message: '写入失败：' + err.message,
+            debug: {
+                error: err.message,
+                stack: err.stack
+            }
+        }), {
             status: 500, headers: { 'Access-Control-Allow-Origin': '*' }
         });
     }
