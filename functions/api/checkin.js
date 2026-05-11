@@ -75,78 +75,60 @@ export async function onRequest(context) {
         let uploadError = null;
         
         if (photo) {
-            try {
-                const base64Data = photo.replace(/^data:image\/\w+;base64,/, "");
-                const byteCharacters = atob(base64Data);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                }
-                const byteArray = new Uint8Array(byteNumbers);
-                
-                // 飞书 upload_all API - 使用 multipart/form-data 手动构建
-                const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
-                const boundary = '----WebKitFormBoundary' + Math.random().toString(36).slice(2);
-                
-                // 构建 multipart body
-                const textEncoder = new TextEncoder();
-                const parts = [];
-                
-                // file_name 字段
-                parts.push(textEncoder.encode(`--${boundary}\r\n`));
-                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="file_name"\r\n\r\n`));
-                parts.push(textEncoder.encode(`${fileName}\r\n`));
-                
-                // parent_type 字段
-                parts.push(textEncoder.encode(`--${boundary}\r\n`));
-                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="parent_type"\r\n\r\n`));
-                parts.push(textEncoder.encode(`bitable_app\r\n`));
-                
-                // parent_node 字段
-                parts.push(textEncoder.encode(`--${boundary}\r\n`));
-                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="parent_node"\r\n\r\n`));
-                parts.push(textEncoder.encode(`${env.FEISHU_BITABLE_TOKEN}\r\n`));
-                
-                // file 字段
-                parts.push(textEncoder.encode(`--${boundary}\r\n`));
-                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`));
-                parts.push(textEncoder.encode(`Content-Type: image/jpeg\r\n\r\n`));
-                parts.push(byteArray);
-                parts.push(textEncoder.encode(`\r\n`));
-                parts.push(textEncoder.encode(`--${boundary}--\r\n`));
-                
-                // 合并所有部分
-                let totalLength = 0;
-                for (const part of parts) {
-                    totalLength += part.length;
-                }
-                const bodyBuffer = new Uint8Array(totalLength);
-                let offset = 0;
-                for (const part of parts) {
-                    bodyBuffer.set(part, offset);
-                    offset += part.length;
-                }
+  try {
+    // 1. 安全移除 Base64 头部（兼容所有图片类型）
+    const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
 
-                const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
-                    method: 'POST',
-                    headers: { 
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                        'User-Agent': 'inspection-system/1.0'
-                    },
-                    body: bodyBuffer,
-                });
-                const uploadData = await uploadRes.json();
-                
-                if (uploadData.code === 0) {
-                    fileToken = uploadData.data.file_token;
-                } else {
-                    uploadError = '上传失败：' + JSON.stringify(uploadData);
-                }
-            } catch (uploadErr) {
-                uploadError = '上传异常：' + uploadErr.message;
-            }
-        }
+    // 2. Base64 转 Uint8Array（兼容 Cloudflare Workers）
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Uint8Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+
+    console.log('照片大小:', byteNumbers.length, 'bytes');
+
+    // 3. 构建文件名 + 文件对象
+    const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
+    const file = new File([byteNumbers], fileName, { type: 'image/jpeg' });
+
+    // 4. 构建 FormData
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // 5. 发起上传请求
+    const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        // 注意：不要手动加 Content-Type: multipart/form-data
+        // 浏览器/Worker 会自动生成正确的 boundary
+      },
+      body: formData,
+    });
+
+    console.log('上传响应状态:', uploadRes.status);
+    const uploadData = await uploadRes.json();
+    console.log('上传响应完整数据:', JSON.stringify(uploadData, null, 2));
+
+    // 6. 处理返回结果
+    if (uploadData.code === 0) {
+      fileToken = uploadData.data?.file_token;
+      if (!fileToken) {
+        throw new Error('返回数据中未找到 file_token');
+      }
+      console.log('上传成功，file_token:', fileToken);
+    } else {
+      const errMsg = uploadData.msg || uploadData.message || JSON.stringify(uploadData);
+      uploadError = `上传失败（API）：${errMsg}`;
+      console.error(uploadError);
+    }
+  } catch (uploadErr) {
+    uploadError = `上传异常：${uploadErr.message}`;
+    console.error(uploadError);
+    console.error('异常堆栈:', uploadErr.stack);
+  }
+}
 
         // 7. 写入多维表格
         const fields = {
