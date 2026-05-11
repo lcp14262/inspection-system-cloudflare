@@ -28,7 +28,7 @@ export async function onRequest(context) {
     const { point_id, lat, lng, result, description, photo } = body;
     
     const CHECKIN_POINTS = {
-        'A001': { name: '1号大门', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
+         'A001': { name: '1号大门', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
          'A002': { name: '1号大门', area: '合肥工厂', lat: 30.5215, lng: 117.0478, radius: 200 },
          'B001': { name: '1号大门', area: '安庆工厂', lat: 31.329192, lng: 118.367044, radius: 200 },
     };
@@ -145,7 +145,8 @@ export async function onRequest(context) {
                 file_token: fileToken,
                 upload_error: uploadError,
                 record_write: '成功',
-                fields_written: Object.keys(fields)
+                fields_written: Object.keys(fields),
+                final_fields: fields
             }
         }), {
             status: 200, headers: { 'Access-Control-Allow-Origin': '*' }
