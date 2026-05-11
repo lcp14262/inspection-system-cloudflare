@@ -28,7 +28,7 @@ export async function onRequest(context) {
     const { point_id, lat, lng, result, description, photo } = body;
     
     const CHECKIN_POINTS = {
-         'A001': { name: '1号大门', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
+          'A001': { name: '1号大门', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
          'A002': { name: '1号大门', area: '合肥工厂', lat: 30.5215, lng: 117.0478, radius: 200 },
          'B001': { name: '1号大门', area: '安庆工厂', lat: 31.329192, lng: 118.367044, radius: 200 },
     };
@@ -84,14 +84,23 @@ export async function onRequest(context) {
                 }
                 const byteArray = new Uint8Array(byteNumbers);
                 
+                // 飞书 upload_all API 需要正确的 form data 格式
+                const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
+                const blob = new Blob([byteArray], { type: 'image/jpeg' });
+                
+                // 使用正确的 form data 结构
                 const formData = new FormData();
+                formData.append('file_name', fileName);
                 formData.append('parent_type', 'bitable_app');
                 formData.append('parent_node', env.FEISHU_BITABLE_TOKEN);
-                formData.append('file', new Blob([byteArray], { type: 'image/jpeg' }), `photo_${Date.now()}.jpg`);
+                formData.append('file', blob, fileName);
 
                 const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}` },
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'User-Agent': 'inspection-system/1.0'
+                    },
                     body: formData,
                 });
                 const uploadData = await uploadRes.json();
