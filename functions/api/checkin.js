@@ -28,9 +28,9 @@ export async function onRequest(context) {
     const { point_id, lat, lng, result, description, photo } = body;
     
     const CHECKIN_POINTS = {
-          'A001': { name: '1号大门', area: '芜湖工厂', lat: 31.230834, lng: 118.173690, radius: 100 },
-         'A002': { name: '1号大门', area: '合肥工厂', lat: 30.5215, lng: 117.0478, radius: 200 },
-         'B001': { name: '1号大门', area: '安庆工厂', lat: 31.329192, lng: 118.367044, radius: 200 },
+        'A001': { name: '1 号厂房东侧', lat: 31.2304, lng: 120.6773, radius: 50 },
+        'A002': { name: '2 号仓库南门', lat: 31.2318, lng: 120.6790, radius: 50 },
+        'B001': { name: '化学品存储区入口', lat: 31.2295, lng: 120.6755, radius: 30 },
     };
     const point = CHECKIN_POINTS[point_id];
     if (!point) {
@@ -84,24 +84,57 @@ export async function onRequest(context) {
                 }
                 const byteArray = new Uint8Array(byteNumbers);
                 
-                // 飞书 upload_all API 需要正确的 form data 格式
+                // 飞书 upload_all API - 使用 multipart/form-data 手动构建
                 const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
-                const blob = new Blob([byteArray], { type: 'image/jpeg' });
+                const boundary = '----WebKitFormBoundary' + Math.random().toString(36).slice(2);
                 
-                // 使用正确的 form data 结构
-                const formData = new FormData();
-                formData.append('file_name', fileName);
-                formData.append('parent_type', 'bitable_app');
-                formData.append('parent_node', env.FEISHU_BITABLE_TOKEN);
-                formData.append('file', blob, fileName);
+                // 构建 multipart body
+                const textEncoder = new TextEncoder();
+                const parts = [];
+                
+                // file_name 字段
+                parts.push(textEncoder.encode(`--${boundary}\r\n`));
+                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="file_name"\r\n\r\n`));
+                parts.push(textEncoder.encode(`${fileName}\r\n`));
+                
+                // parent_type 字段
+                parts.push(textEncoder.encode(`--${boundary}\r\n`));
+                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="parent_type"\r\n\r\n`));
+                parts.push(textEncoder.encode(`bitable_app\r\n`));
+                
+                // parent_node 字段
+                parts.push(textEncoder.encode(`--${boundary}\r\n`));
+                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="parent_node"\r\n\r\n`));
+                parts.push(textEncoder.encode(`${env.FEISHU_BITABLE_TOKEN}\r\n`));
+                
+                // file 字段
+                parts.push(textEncoder.encode(`--${boundary}\r\n`));
+                parts.push(textEncoder.encode(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`));
+                parts.push(textEncoder.encode(`Content-Type: image/jpeg\r\n\r\n`));
+                parts.push(byteArray);
+                parts.push(textEncoder.encode(`\r\n`));
+                parts.push(textEncoder.encode(`--${boundary}--\r\n`));
+                
+                // 合并所有部分
+                let totalLength = 0;
+                for (const part of parts) {
+                    totalLength += part.length;
+                }
+                const bodyBuffer = new Uint8Array(totalLength);
+                let offset = 0;
+                for (const part of parts) {
+                    bodyBuffer.set(part, offset);
+                    offset += part.length;
+                }
 
                 const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
                     method: 'POST',
                     headers: { 
                         'Authorization': `Bearer ${token}`,
+                        'Content-Type': `multipart/form-data; boundary=${boundary}`,
                         'User-Agent': 'inspection-system/1.0'
                     },
-                    body: formData,
+                    body: bodyBuffer,
                 });
                 const uploadData = await uploadRes.json();
                 
