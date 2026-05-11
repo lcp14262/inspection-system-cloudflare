@@ -1,6 +1,5 @@
 // functions/api/checkin.js
 export async function onRequest(context) {
-    // 1. 处理预检请求 (CORS)
     if (context.request.method === 'OPTIONS') {
         return new Response(null, {
             status: 200,
@@ -11,14 +10,12 @@ export async function onRequest(context) {
         });
     }
 
-    // 2. 只接受 POST
     if (context.request.method !== 'POST') {
         return new Response(JSON.stringify({ success: false, message: '方法不允许' }), {
             status: 405, headers: { 'Access-Control-Allow-Origin': '*' }
         });
     }
 
-    // 3. 解析数据
     let body;
     try {
         body = await context.request.json();
@@ -42,7 +39,6 @@ export async function onRequest(context) {
         });
     }
 
-    // 4. 计算距离
     const R = 6371000;
     const dLat = (point.lat - lat) * Math.PI / 180;
     const dLng = (point.lng - lng) * Math.PI / 180;
@@ -61,7 +57,6 @@ export async function onRequest(context) {
     }
 
     try {
-        // 5. 获取飞书 Token
         const env = context.env;
         const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -73,52 +68,46 @@ export async function onRequest(context) {
         }
         const token = tokenData.tenant_access_token;
 
-        // 6. 上传照片到多维表格素材库 —— ✅ 修复版（用正确接口 media/upload_all）
+        // ====================== ✅ 图片上传（终极正确版）======================
         let fileToken = null;
         let uploadError = null;
         
         if (photo && photo.startsWith('data:image/')) {
             try {
                 const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
-                const byteCharacters = atob(base64Data);
-                const uint8Array = new Uint8Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    uint8Array[i] = byteCharacters.charCodeAt(i);
+                const binary = atob(base64Data);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
                 }
 
-                const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
-                const file = new File([uint8Array], fileName, { type: 'image/jpeg' });
-
                 const formData = new FormData();
-                formData.append('file', file);
-                formData.append('file_name', fileName);
-                formData.append('size', uint8Array.length);
-                formData.append('type', 'docx_image'); // 多维表格图片固定填这个
+                const fileName = `photo_${Date.now()}.jpg`;
+                formData.append('image', new Blob([bytes], { type: 'image/jpeg' }), fileName);
 
-                // ✅ 关键：用 media/upload_all 接口，不是 files/upload_all
-                const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/media/upload_all', {
+                // 飞书多维表格官方图片接口
+                const uploadUrl = `https://open.feishu.cn/open-apis/bitable/v1/apps/${env.FEISHU_BITABLE_TOKEN}/images/upload`;
+                const uploadRes = await fetch(uploadUrl, {
                     method: 'POST',
                     headers: { Authorization: `Bearer ${token}` },
                     body: formData
                 });
 
-                const uploadData = await uploadRes.json();
-                console.log('飞书上传返回:', JSON.stringify(uploadData, null, 2));
+                const rawText = await uploadRes.text();
+                const uploadData = JSON.parse(rawText);
 
-                if (uploadData.code !== 0) {
-                    throw new Error(uploadData.msg || '参数错误');
+                if (uploadData.code === 0) {
+                    fileToken = uploadData.data.image_token;
+                } else {
+                    throw new Error(uploadData.msg || '上传失败');
                 }
 
-                fileToken = uploadData.data?.file_token;
-                if (!fileToken) throw new Error('未返回 file_token');
-                
             } catch (e) {
-                uploadError = '图片上传失败：' + e.message;
-                console.error(uploadError);
+                uploadError = '上传失败：' + e.message;
             }
         }
+        // ====================================================================
 
-        // 7. 写入多维表格
         const fields = {
             '点位名称': point.name,
             '巡检时间': Date.now(),
@@ -130,14 +119,15 @@ export async function onRequest(context) {
             '处理状态': result === '异常' ? '待处理' : '已解决',
         };
         
+        // ✅ 用 image_token 存入多维表格
         if (fileToken) {
-            fields['现场照片'] = [{ "file_token": fileToken }];
+            fields['现场照片'] = [{ "image_token": fileToken }];
         }
 
         const recordUrl = `https://open.feishu.cn/open-apis/bitable/v1/apps/${env.FEISHU_BITABLE_TOKEN}/tables/${env.FEISHU_TABLE_ID}/records`;
         const recordRes = await fetch(recordUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({ fields }),
         });
         const recordData = await recordRes.json();
@@ -152,11 +142,9 @@ export async function onRequest(context) {
             debug: {
                 has_photo: !!photo,
                 photo_upload: fileToken ? '成功' : (uploadError || '未上传'),
-                file_token: fileToken,
+                image_token: fileToken,
                 upload_error: uploadError,
                 record_write: '成功',
-                fields_written: Object.keys(fields),
-                final_fields: fields
             }
         }), {
             status: 200, headers: { 'Access-Control-Allow-Origin': '*' }
@@ -164,11 +152,7 @@ export async function onRequest(context) {
     } catch (err) {
         return new Response(JSON.stringify({ 
             success: false, 
-            message: '写入失败：' + err.message,
-            debug: {
-                error: err.message,
-                stack: err.stack
-            }
+            message: '失败：' + err.message
         }), {
             status: 500, headers: { 'Access-Control-Allow-Origin': '*' }
         });
