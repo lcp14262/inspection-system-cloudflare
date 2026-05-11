@@ -4,7 +4,10 @@ export async function onRequest(context) {
     if (context.request.method === 'OPTIONS') {
         return new Response(null, {
             status: 200,
-            headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type' }
+            headers: { 
+                'Access-Control-Allow-Origin': '*', 
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization' 
+            }
         });
     }
 
@@ -70,65 +73,54 @@ export async function onRequest(context) {
         }
         const token = tokenData.tenant_access_token;
 
-        // 6. 上传照片到云文档
+        // 6. 上传照片到云文档 —— ✅ 修复版
         let fileToken = null;
         let uploadError = null;
         
-        if (photo) {
-  try {
-    // 1. 安全移除 Base64 头部（兼容所有图片类型）
-    const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
+        if (photo && photo.startsWith('data:image/')) {
+            try {
+                // 调试
+                console.log('photo base64 开头:', photo.slice(0, 50));
+                
+                // 移除 Base64 头
+                const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
+                const byteCharacters = atob(base64Data);
+                const uint8Array = new Uint8Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    uint8Array[i] = byteCharacters.charCodeAt(i);
+                }
 
-    // 2. Base64 转 Uint8Array（兼容 Cloudflare Workers）
-    const byteCharacters = atob(base64Data);
-    const byteNumbers = new Uint8Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
+                const fileSize = uint8Array.length;
+                const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
 
-    console.log('照片大小:', byteNumbers.length, 'bytes');
+                // ✅ 飞书官方要求格式：不能把 fileName 塞 File 里
+                const formData = new FormData();
+                formData.append('file', uint8Array);           // 只传二进制
+                formData.append('file_name', fileName);        // 必须单独传
+                formData.append('size', fileSize);             // 必须传大小
+                formData.append('type', 'jpg');                // 必须传类型
 
-    // 3. 构建文件名 + 文件对象
-    const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
-    const file = new File([byteNumbers], fileName, { type: 'image/jpeg' });
+                const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: formData
+                });
 
-    // 4. 构建 FormData
-    const formData = new FormData();
-    formData.append('file', file);
+                const uploadData = await uploadRes.json();
+                console.log('飞书上传返回:', JSON.stringify(uploadData, null, 2));
 
-    // 5. 发起上传请求
-    const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        // 注意：不要手动加 Content-Type: multipart/form-data
-        // 浏览器/Worker 会自动生成正确的 boundary
-      },
-      body: formData,
-    });
+                if (uploadData.code !== 0) {
+                    throw new Error(`${uploadData.msg || uploadData.error || '参数错误'}`);
+                }
 
-    console.log('上传响应状态:', uploadRes.status);
-    const uploadData = await uploadRes.json();
-    console.log('上传响应完整数据:', JSON.stringify(uploadData, null, 2));
-
-    // 6. 处理返回结果
-    if (uploadData.code === 0) {
-      fileToken = uploadData.data?.file_token;
-      if (!fileToken) {
-        throw new Error('返回数据中未找到 file_token');
-      }
-      console.log('上传成功，file_token:', fileToken);
-    } else {
-      const errMsg = uploadData.msg || uploadData.message || JSON.stringify(uploadData);
-      uploadError = `上传失败（API）：${errMsg}`;
-      console.error(uploadError);
-    }
-  } catch (uploadErr) {
-    uploadError = `上传异常：${uploadErr.message}`;
-    console.error(uploadError);
-    console.error('异常堆栈:', uploadErr.stack);
-  }
-}
+                fileToken = uploadData.data?.file_token;
+                if (!fileToken) throw new Error('未返回 file_token');
+                
+            } catch (e) {
+                uploadError = '图片上传失败：' + e.message;
+                console.error(uploadError);
+            }
+        }
 
         // 7. 写入多维表格
         const fields = {
