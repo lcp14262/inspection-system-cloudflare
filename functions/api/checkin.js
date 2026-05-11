@@ -88,21 +88,28 @@ export async function onRequest(context) {
         let fileToken = null;
 
         if (photo && photo.startsWith('data:image/')) {
-            const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
-            const byteCharacters = atob(base64Data);
-            const uint8Array = new Uint8Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                uint8Array[i] = byteCharacters.charCodeAt(i);
-            }
-
-            const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
-
-            // 简化：只传 file 和 file_name，不传 parent_type 和 parent_node
-            const formData = new FormData();
-            formData.append('file', new Blob([uint8Array], { type: 'image/jpeg' }), fileName);
-            formData.append('file_name', fileName);
-			formData.append('parent_type', 'my_space');        // ← 补上
-			formData.append('parent_node', rootFolderToken);   // ← 补上
+		    const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
+		
+		    // --- 安全的 base64 解码，绕过 atob 的坑 ↓ ---
+		    const binaryStr = decodeURIComponent(
+		        atob(base64Data)
+		            .split('')
+		            .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+		            .join('')
+		    );
+		    const uint8Array = new Uint8Array(binaryStr.length);
+		    for (let i = 0; i < binaryStr.length; i++) {
+		        uint8Array[i] = binaryStr.charCodeAt(i);
+		    }
+		    // --- 解码结束 ↑ ---
+		
+		    const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
+		
+		    const formData = new FormData();
+		    formData.append('file', new Blob([uint8Array], { type: 'image/jpeg' }), fileName);
+		    formData.append('file_name', fileName);
+		    formData.append('parent_type', 'my_space');
+		    formData.append('parent_node', rootFolderToken);
 
             const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
                 method: 'POST',
