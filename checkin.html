@@ -15,6 +15,7 @@
         <button onclick="removePhoto()" style="width:100%;padding:8px;background:#ff4d4f;color:white;border:none;border-radius:6px;margin-top:5px;">移除照片</button>
     </div>
 </div>
+<div id="debug-box" style="display:none;margin-top:15px;padding:12px;background:#f0f0f0;border-radius:8px;font-size:12px;font-family:monospace;white-space:pre-wrap;overflow:auto;max-height:300px;"></div>
 <button class="btn p" id="sb" disabled onclick="submit()">✅ 提交巡检记录</button></section></div>
 <script>let cp,clat,clng,photoBase64=null;
 // 关键修改：URL 路径改为 /api/points
@@ -28,4 +29,6 @@ document.getElementById('photo-input').addEventListener('change',function(e){con
 function removePhoto(){photoBase64=null;document.getElementById('photo-input').value='';document.getElementById('preview-area').style.display='none';}
 async function submit(){const res=document.querySelector('input[name="r"]:checked').value;const desc=document.getElementById('desc').value;if(res==='异常'&&!desc.trim()){alert('请填写问题描述');return}const btn=document.getElementById('sb');btn.disabled=true;btn.textContent='⏳ 提交中...';try{
 // 关键修改：URL 路径改为 /api/checkin
-const r=await fetch('/api/checkin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({point_id:cp.id,lat:clat,lng:clng,result:res,description:desc,photo:photoBase64})});const d=await r.json();if(d.success){alert('🎉 打卡成功！数据已保存至飞书多维表格');location.href='/'}else{alert('❌ '+d.message);btn.disabled=false;btn.textContent='✅ 重新提交'}}catch(e){alert('提交失败: '+e.message);btn.disabled=false;btn.textContent='✅ 重新提交'}}</script></body></html>
+const r=await fetch('/api/checkin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({point_id:cp.id,lat:clat,lng:clng,result:res,description:desc,photo:photoBase64})});const d=await r.json();if(d.success){
+if(d.debug){const box=document.getElementById('debug-box');box.style.display='block';box.textContent='🔍 调试信息:\n'+JSON.stringify(d.debug,null,2);box.scrollIntoView({behavior:'smooth'});alert('🎉 打卡成功！请查看下方调试信息，截图发给开发者');
+}else{alert('🎉 打卡成功！数据已保存至飞书多维表格');location.href='/'}}else{alert('❌ '+d.message);btn.disabled=false;btn.textContent='✅ 重新提交'}}catch(e){alert('提交失败: '+e.message);btn.disabled=false;btn.textContent='✅ 重新提交'}}</script></body></html>
