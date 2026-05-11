@@ -73,16 +73,12 @@ export async function onRequest(context) {
         }
         const token = tokenData.tenant_access_token;
 
-        // 6. 上传照片到云文档 —— ✅ 修复版
+        // 6. 上传照片到多维表格素材库 —— ✅ 修复版（用正确接口 media/upload_all）
         let fileToken = null;
         let uploadError = null;
         
         if (photo && photo.startsWith('data:image/')) {
             try {
-                // 调试
-                console.log('photo base64 开头:', photo.slice(0, 50));
-                
-                // 移除 Base64 头
                 const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
                 const byteCharacters = atob(base64Data);
                 const uint8Array = new Uint8Array(byteCharacters.length);
@@ -90,17 +86,17 @@ export async function onRequest(context) {
                     uint8Array[i] = byteCharacters.charCodeAt(i);
                 }
 
-                const fileSize = uint8Array.length;
                 const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
+                const file = new File([uint8Array], fileName, { type: 'image/jpeg' });
 
-                // ✅ 飞书官方要求格式：不能把 fileName 塞 File 里
                 const formData = new FormData();
-                formData.append('file', uint8Array);           // 只传二进制
-                formData.append('file_name', fileName);        // 必须单独传
-                formData.append('size', fileSize);             // 必须传大小
-                formData.append('type', 'jpg');                // 必须传类型
+                formData.append('file', file);
+                formData.append('file_name', fileName);
+                formData.append('size', uint8Array.length);
+                formData.append('type', 'docx_image'); // 多维表格图片固定填这个
 
-                const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
+                // ✅ 关键：用 media/upload_all 接口，不是 files/upload_all
+                const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/media/upload_all', {
                     method: 'POST',
                     headers: { Authorization: `Bearer ${token}` },
                     body: formData
@@ -110,7 +106,7 @@ export async function onRequest(context) {
                 console.log('飞书上传返回:', JSON.stringify(uploadData, null, 2));
 
                 if (uploadData.code !== 0) {
-                    throw new Error(`${uploadData.msg || uploadData.error || '参数错误'}`);
+                    throw new Error(uploadData.msg || '参数错误');
                 }
 
                 fileToken = uploadData.data?.file_token;
@@ -134,7 +130,6 @@ export async function onRequest(context) {
             '处理状态': result === '异常' ? '待处理' : '已解决',
         };
         
-        // 如果有 file_token，写入照片字段
         if (fileToken) {
             fields['现场照片'] = [{ "file_token": fileToken }];
         }
@@ -151,7 +146,6 @@ export async function onRequest(context) {
             throw new Error(recordData.msg || '写入失败');
         }
 
-        // 返回详细调试信息
         return new Response(JSON.stringify({ 
             success: true, 
             message: '打卡成功',
