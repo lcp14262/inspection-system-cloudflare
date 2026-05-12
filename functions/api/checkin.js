@@ -83,12 +83,10 @@ export async function onRequest(context) {
 		let fileToken = null;
 		if (photo && photo.startsWith('data:image/')) {
 			const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
-			const binaryStr = decodeURIComponent(
-				atob(base64Data)
-					.split('')
-					.map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-					.join('')
-			);
+			
+			// 使用更可靠的 Base64 转 Uint8Array 方法
+			// 避免使用 decodeURIComponent，防止 URI malformed 错误
+			const binaryStr = atob(base64Data);
 			const uint8Array = new Uint8Array(binaryStr.length);
 			for (let i = 0; i < binaryStr.length; i++) {
 				uint8Array[i] = binaryStr.charCodeAt(i);
