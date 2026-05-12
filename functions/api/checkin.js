@@ -75,14 +75,34 @@ export async function onRequest(context) {
         if (!tokenData.tenant_access_token) throw new Error('获取 Token 失败');
         const token = tokenData.tenant_access_token;
 		
-		//5.1 获取「我的空间」根目录 token
-		const rootRes = await fetch(
-			'https://open.feishu.cn/open-apis/drive/v1/files/root?type=my_space',
-			{ headers: { Authorization: `Bearer ${token}` } }
-		);
-		const rootData = await rootRes.json();
-		if (rootData.code !== 0) throw new Error('获取根目录失败: ' + rootData.msg);
-		const rootFolderToken = rootData.data.token;   // 用作 parent_node
+		// 5.1 获取「我的空间」根目录 token（安全解析）
+		let rootFolderToken;
+		try {
+		    const rootRes = await fetch(
+		        'https://open.feishu.cn/open-apis/drive/v1/files/root?type=my_space',
+		        { headers: { Authorization: `Bearer ${token}` } }
+		    );
+		
+		    const rootText = await rootRes.text();       // 先拿到原始文本
+		
+		    let rootData;
+		    try {
+		        rootData = JSON.parse(rootText);        // 再尝试解析 JSON
+		    } catch (parseError) {
+		        // 解析失败，把原始内容一起抛出，方便调试
+		        throw new Error(
+		            `files/root 返回非 JSON（状态码 ${rootRes.status}）: ${rootText.substring(0, 300)}`
+		        );
+		    }
+		
+		    if (rootData.code !== 0) {
+		        throw new Error(`获取根目录失败: code=${rootData.code} msg=${rootData.msg}`);
+		    }
+		
+		    rootFolderToken = rootData.data.token;
+		} catch (e) {
+		    throw new Error(`根目录初始化失败：${e.message}`);
+		}
 
         // 6. 上传照片到云文档（简化版：不指定文件夹，上传到根目录）
         let fileToken = null;
