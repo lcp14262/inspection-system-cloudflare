@@ -76,82 +76,55 @@ export async function onRequest(context) {
         const token = tokenData.tenant_access_token;
 		
 		// 5.1 获取「我的空间」根目录 token（安全解析）
-		let rootFolderToken;
-		try {
-		    const rootRes = await fetch(
-		        'https://open.feishu.cn/open-apis/drive/v1/files/root?type=my_space',
-		        { headers: { Authorization: `Bearer ${token}` } }
-		    );
 		
-		    const rootText = await rootRes.text();       // 先拿到原始文本
-		
-		    let rootData;
-		    try {
-		        rootData = JSON.parse(rootText);        // 再尝试解析 JSON
-		    } catch (parseError) {
-		        // 解析失败，把原始内容一起抛出，方便调试
-		        throw new Error(
-		            `files/root 返回非 JSON（状态码 ${rootRes.status}）: ${rootText.substring(0, 300)}`
-		        );
-		    }
-		
-		    if (rootData.code !== 0) {
-		        throw new Error(`获取根目录失败: code=${rootData.code} msg=${rootData.msg}`);
-		    }
-		
-		    rootFolderToken = rootData.data.token;
-		} catch (e) {
-		    throw new Error(`根目录初始化失败：${e.message}`);
-		}
 
         // 6. 上传照片到云文档（简化版：不指定文件夹，上传到根目录）
-        let fileToken = null;
+       // 删除之前所有的 5.1 相关代码，直接进入第 6 步
+		let fileToken = null;
+		if (photo && photo.startsWith('data:image/')) {
+			const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
+			const binaryStr = decodeURIComponent(
+				atob(base64Data)
+					.split('')
+					.map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+					.join('')
+			);
+			const uint8Array = new Uint8Array(binaryStr.length);
+			for (let i = 0; i < binaryStr.length; i++) {
+				uint8Array[i] = binaryStr.charCodeAt(i);
+			}
 
-        if (photo && photo.startsWith('data:image/')) {
-		    const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
-		
-		    // --- 安全的 base64 解码，绕过 atob 的坑 ↓ ---
-		    const binaryStr = decodeURIComponent(
-		        atob(base64Data)
-		            .split('')
-		            .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-		            .join('')
-		    );
-		    const uint8Array = new Uint8Array(binaryStr.length);
-		    for (let i = 0; i < binaryStr.length; i++) {
-		        uint8Array[i] = binaryStr.charCodeAt(i);
-		    }
-		    // --- 解码结束 ↑ ---
-		
-		    const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
-		
-		    const formData = new FormData();
-		    formData.append('file', new Blob([uint8Array], { type: 'image/jpeg' }), fileName);
-		    formData.append('file_name', fileName);
-		    formData.append('parent_type', 'my_space');
-		    formData.append('parent_node', rootFolderToken);
+			const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
 
-            const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: formData
-            });
+			const formData = new FormData();
+			formData.append('file', new Blob([uint8Array], { type: 'image/jpeg' }), fileName);
+			formData.append('file_name', fileName);
+			formData.append('parent_type', 'my_space');        // 机器人的我的空间
+			formData.append('parent_node', '');                // 空字符串=根目录
 
-            const rawText = await uploadRes.text();
-            let uploadData;
-            try {
-                uploadData = JSON.parse(rawText);
-            } catch (e) {
-                throw new Error(`飞书返回非 JSON：${rawText}`);
-            }
+			const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${token}` },
+				body: formData
+			});
 
-            if (uploadData.code !== 0) {
-                throw new Error(`上传失败 code=${uploadData.code}: ${uploadData.msg}`);
-            }
+		const rawText = await uploadRes.text();
+		let uploadData;
+		try {
+			uploadData = JSON.parse(rawText);
+		} catch (e) {
+			throw new Error(`飞书返回非 JSON：${rawText}`);
+		}
 
-            fileToken = uploadData.data.file_token;
-            if (!fileToken) throw new Error('未获取 file_token');
-        }
+		if (uploadData.code !== 0) {
+			throw new Error(`上传失败 code=${uploadData.code}: ${uploadData.msg}`);
+		}
+
+		// 注意：upload_all API 返回的是 file_id，需要转换为 file_token
+		// 对于多维表格附件字段，需要使用 file_token
+		fileToken = uploadData.data.file_token || uploadData.data.id;
+		if (!fileToken) throw new Error('未获取 file_token，响应数据：' + JSON.stringify(uploadData.data));
+		}
 
         // 7. 写入多维表格
         const fields = {
@@ -165,9 +138,12 @@ export async function onRequest(context) {
             '处理状态': result === '异常' ? '待处理' : '已解决',
         };
 
-        // 如果有照片，写入附件字段
+        // 如果有照片，写入附件字段（注意：需要 type: "attachment"）
         if (fileToken) {
-            fields['现场照片'] = [{ file_token: fileToken }];
+            fields['现场照片'] = [{ 
+                type: "attachment", 
+                file_token: fileToken 
+            }];
         }
 
         const recordUrl = `https://open.feishu.cn/open-apis/bitable/v1/apps/${env.FEISHU_BITABLE_TOKEN}/tables/${env.FEISHU_TABLE_ID}/records`;
