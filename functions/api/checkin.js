@@ -78,14 +78,13 @@ export async function onRequest(context) {
 		// 5.1 获取「我的空间」根目录 token（安全解析）
 		
 
-        // 6. 上传照片到云文档（简化版：不指定文件夹，上传到根目录）
-       // 删除之前所有的 5.1 相关代码，直接进入第 6 步
+		// 6. 上传照片到飞书（使用多维表格专用 API）
+		// 参考本地 Python 代码：/home/lcp/inspection-system/feishu/bitable.py
 		let fileToken = null;
 		if (photo && photo.startsWith('data:image/')) {
 			const base64Data = photo.replace(/^data:image\/[^;]+;base64,/, '');
 			
 			// 使用更可靠的 Base64 转 Uint8Array 方法
-			// 避免使用 decodeURIComponent，防止 URI malformed 错误
 			const binaryStr = atob(base64Data);
 			const uint8Array = new Uint8Array(binaryStr.length);
 			for (let i = 0; i < binaryStr.length; i++) {
@@ -94,15 +93,18 @@ export async function onRequest(context) {
 
 			const fileName = `inspection_${point_id}_${Date.now()}.jpg`;
 
+			// 使用多维表格图片上传 API（不是云文档 API）
+			// 参数字段是 "image" 而不是 "file"
 			const formData = new FormData();
-			formData.append('file', new Blob([uint8Array], { type: 'image/jpeg' }), fileName);
-			formData.append('file_name', fileName);
-			formData.append('parent_type', 'my_space');        // 机器人的我的空间
-			formData.append('parent_node', '');                // 空字符串=根目录
+			formData.append('image', new Blob([uint8Array], { type: 'image/jpeg' }), fileName);
 
-			const uploadRes = await fetch('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', {
+			const uploadUrl = `https://open.feishu.cn/open-apis/bitable/v1/apps/${env.FEISHU_BITABLE_TOKEN}/upload_image`;
+			const uploadRes = await fetch(uploadUrl, {
 				method: 'POST',
-				headers: { Authorization: `Bearer ${token}` },
+				headers: { 
+					Authorization: `Bearer ${token}`
+					// 注意：不要手动设置 Content-Type，FormData 会自动设置
+				},
 				body: formData
 			});
 
@@ -136,10 +138,9 @@ export async function onRequest(context) {
             '处理状态': result === '异常' ? '待处理' : '已解决',
         };
 
-        // 如果有照片，写入附件字段（注意：需要 type: "attachment"）
+        // 如果有照片，写入附件字段（和本地 Python 代码保持一致）
         if (fileToken) {
             fields['现场照片'] = [{ 
-                type: "attachment", 
                 file_token: fileToken 
             }];
         }
